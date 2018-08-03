@@ -1,11 +1,9 @@
-# This is the class you derive to create a plugin
 from airflow.plugins_manager import AirflowPlugin
 
 from flask import Blueprint
 from flask_admin import BaseView, expose
 from flask_admin.base import MenuLink
 
-# Importing base classes that we need to derive
 from airflow.contrib.hooks.aws_hook import AwsHook
 from airflow.hooks.base_hook import BaseHook
 from airflow.models import  BaseOperator
@@ -161,7 +159,6 @@ class EmrOperator(BaseOperator):
             else:
                 print('still pending...')
                 time.sleep(5)
-
 
 
 # Defining the plugin class
