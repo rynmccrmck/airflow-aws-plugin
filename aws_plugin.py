@@ -157,8 +157,8 @@ class EmrOperator(BaseOperator):
                     raise AirflowException('EMR step(s) failed!')
                 break
             else:
-                print('still pending...')
-                time.sleep(5)
+                logging.info("Job(s) still running/pending")
+                time.sleep(60)
 
 
 # Defining the plugin class
