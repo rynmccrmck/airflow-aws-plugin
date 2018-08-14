@@ -83,6 +83,57 @@ class UploadFileToS3Operator(BaseOperator):
         bucket.upload_file(self.local_filename, s3_location)
 
 
+class MySQLToS3Operator(BaseOperator):
+    """"""
+    template_fields = ('query','prefix','s3_filename')
+    @apply_defaults
+    def __init__(self,
+                 aws_conn_id,
+                 mysql_conn_id,
+                 bucket_name,
+                 prefix,
+                 s3_filename,
+                 query,
+                 replace_s3_file=True,
+                 headers=False,**kwargs):
+        super().__init__(**kwargs)
+        self.aws_conn_id = aws_conn_id
+        self.mysql_conn_id = mysql_conn_id
+        self.bucket_name = bucket_name
+        self.prefix = prefix  
+        self.s3_filename = s3_filename
+        self.replace_s3_file = replace_s3_file
+        self.headers = headers
+        self.query = query
+    
+    def query_mysql(self):
+        mysql = MySqlHook(self.mysql_conn_id)
+        con = mysql.get_conn()
+        cur = con.cursor()
+        cur.execute(self.query)
+        result = cur.fetchall()
+        if self.headers:
+            headers = [col[0] for col in cur.description]
+            result = (tuple(headers,),) + result
+        return result
+    
+    def copy_results_s3(self,results):
+        aws = AwsHook(aws_conn_id=self.aws_conn_id)
+        s3 = aws.get_client_type('s3')
+        bucket = s3.Bucket(self.bucket_name)
+        s3.load_string(
+            string_data=results,
+            bucket_name=self.s3_bucket,
+            key='{}/{}'.format(self.prefix, self.s3_filename),
+            replace=True
+        )
+    
+    def execute(self, context):    
+        logging.info("Executing MySQLToS3Operator")
+        results = self.query_mysql()
+        self.copy_results_s3(results)
+
+
 class S3DeletePrefixOperator(BaseOperator):
     template_fields = ('prefix',)
     @apply_defaults
