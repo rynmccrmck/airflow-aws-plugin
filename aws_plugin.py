@@ -12,6 +12,7 @@ from airflow.exceptions import AirflowException
 from airflow.executors.base_executor import BaseExecutor
 from airflow.utils.decorators import apply_defaults 
 
+from io import StringIO
 import logging
 import time
 
@@ -73,15 +74,14 @@ class UploadFileToS3Operator(BaseOperator):
         self.aws_conn_id = aws_conn_id
         self.bucket_name = bucket_name
         self.prefix = prefix 
-        self.lcoal_filename = local_filename
+        self.local_filename = local_filename
         self.s3_filename = s3_filename 
     def execute(self, context):
         logging.info("Executing UploadFileToS3Operator")   
         aws = AwsHook(aws_conn_id=self.aws_conn_id)
         s3 = aws.get_client_type('s3')
-        bucket = s3.Bucket(self.bucket_name)
         s3_location = '{0}/{1}'.format(self.prefix, self.s3_filename)
-        bucket.upload_file(self.local_filename, s3_location)
+        s3.upload_file(self.local_filename, self.bucket_name, s3_location)
 
 
 class MySQLToS3Operator(BaseOperator):
@@ -121,13 +121,10 @@ class MySQLToS3Operator(BaseOperator):
     def copy_results_s3(self,results):
         aws = AwsHook(aws_conn_id=self.aws_conn_id)
         s3 = aws.get_client_type('s3')
-        bucket = s3.Bucket(self.bucket_name)
-        s3.load_string(
-            string_data=results,
-            bucket_name=self.s3_bucket,
-            key='{}/{}'.format(self.prefix, self.s3_filename),
-            replace=True
-        )
+        concat = StringIO()
+        [concat.write(",".join(map(str, i)) + '\n') for i in results]
+        s3_location = self.prefix + '/' + self.s3_filename
+        s3.put_object(Body=concat.getvalue(), Bucket=self.bucket_name, Key=s3_location)
     
     def execute(self, context):    
         logging.info("Executing MySQLToS3Operator")
@@ -240,4 +237,4 @@ class EmrOperator(BaseOperator):
 # Defining the plugin class
 class CustomAwsPlugin(AirflowPlugin):
     name = "custom_aws_plugin"
-    operators = [CloudwatchToS3Operator,S3DeletePrefixOperator,EmrOperator]
+    operators = [CloudwatchToS3Operator,S3DeletePrefixOperator,EmrOperator,MySQLToS3Operator,UploadFileToS3Operator]
