@@ -4,6 +4,7 @@ from flask import Blueprint
 from flask_admin import BaseView, expose
 from flask_admin.base import MenuLink
 
+from airflow.hooks.mysql_hook import MySqlHook
 from airflow.contrib.hooks.aws_hook import AwsHook
 from airflow.hooks.base_hook import BaseHook
 from airflow.models import  BaseOperator
