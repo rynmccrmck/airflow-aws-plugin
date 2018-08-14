@@ -59,6 +59,30 @@ class CloudwatchToS3Operator(BaseOperator):
             raise AirflowException('Cloudwatch export task failed -{}'.format(status_code))
 
 
+class UploadFileToS3Operator(BaseOperator):
+    template_fields = ('prefix','local_filename','s3_filename')
+    @apply_defaults
+    def __init__(self, 
+                 aws_conn_id,
+                 bucket_name,
+                 prefix,
+                 local_filename,
+                 s3_filename, **kwargs):
+        super().__init__(**kwargs)
+        self.aws_conn_id = aws_conn_id
+        self.bucket_name = bucket_name
+        self.prefix = prefix 
+        self.lcoal_filename = local_filename
+        self.s3_filename = s3_filename 
+    def execute(self, context):
+        logging.info("Executing UploadFileToS3Operator")   
+        aws = AwsHook(aws_conn_id=self.aws_conn_id)
+        s3 = aws.get_client_type('s3')
+        bucket = s3.Bucket(self.bucket_name)
+        s3_location = '{0}/{1}'.format(self.prefix, self.s3_filename)
+        bucket.upload_file(self.local_filename, s3_location)
+
+
 class S3DeletePrefixOperator(BaseOperator):
     template_fields = ('prefix',)
     @apply_defaults
