@@ -6,6 +6,7 @@ from flask_admin.base import MenuLink
 
 from airflow.hooks.mysql_hook import MySqlHook
 from airflow.contrib.hooks.aws_hook import AwsHook
+from airflow.hooks.S3_hook import S3Hook
 from airflow.hooks.base_hook import BaseHook
 from airflow.models import  BaseOperator
 from airflow.exceptions import AirflowException
@@ -61,6 +62,66 @@ class CloudwatchToS3Operator(BaseOperator):
             raise AirflowException('Cloudwatch export task failed -{}'.format(status_code))
 
 
+class S3ToMySQLOperator(BaseOperator):
+    template_fields = ('s3_key',)
+    
+    @apply_defaults
+    def __init__(self,
+                 s3_conn_id,
+                 s3_bucket,
+                 s3_key,
+                 mysql_conn_id,
+                 schema,
+                 table,
+                 columns,
+                 drop_first_row,
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.mysql_conn_id = mysql_conn_id
+        self.s3_conn_id = s3_conn_id
+        self.s3_bucket = s3_bucket
+        self.s3_key = s3_key
+        self.table = table
+        self.schema = schema
+        self.table = table
+        self.columns = columns
+        self.drop_first_row = drop_first_row
+
+    def execute(self, context):
+        logging.info(self.__class__.__name__)
+        m_hook = MySqlHook(self.mysql_conn_id)
+
+        data = (S3Hook(self.s3_conn_id)
+                .get_key(self.s3_key, bucket_name=self.s3_bucket)
+                .get_contents_as_string(encoding='utf-8'))
+
+        
+        records = [tuple(record.split(',')) for record in data.split('\n') if record]
+  
+ 
+        if self.drop_first_row:
+            records = records[1:]
+ 
+        if len(records) < 1:
+            logging.info("No records")
+            return
+
+        insert_query = '''
+         INSERT INTO {schema}.{table} ({columns})
+            VALUES ({placeholders})
+        '''.format(schema=self.schema,
+                   table=self.table,
+                   columns=', '.join(self.columns),
+                   placeholders=', '.join('%s' for col in self.columns))
+
+        conn = m_hook.get_conn()
+        cur = conn.cursor()
+        cur.executemany(insert_query, records)
+        cur.close()
+        conn.commit()
+        conn.close()
+
+
 class UploadFileToS3Operator(BaseOperator):
     template_fields = ('prefix','local_filename','s3_filename')
     @apply_defaults
@@ -85,7 +146,6 @@ class UploadFileToS3Operator(BaseOperator):
 
 
 class MySQLToS3Operator(BaseOperator):
-    """"""
     template_fields = ('query','prefix','s3_filename')
     @apply_defaults
     def __init__(self,
@@ -95,8 +155,9 @@ class MySQLToS3Operator(BaseOperator):
                  prefix,
                  s3_filename,
                  query,
-                 replace_s3_file=True,
-                 headers=False,**kwargs):
+                 replace_s3_file,
+                 headers,
+                 **kwargs):
         super().__init__(**kwargs)
         self.aws_conn_id = aws_conn_id
         self.mysql_conn_id = mysql_conn_id
@@ -118,7 +179,8 @@ class MySQLToS3Operator(BaseOperator):
             result = (tuple(headers,),) + result
         return result
     
-    def copy_results_s3(self,results):
+    def copy_results_s3(self):
+        results = self.query_mysql()
         aws = AwsHook(aws_conn_id=self.aws_conn_id)
         s3 = aws.get_client_type('s3')
         concat = StringIO()
@@ -128,8 +190,7 @@ class MySQLToS3Operator(BaseOperator):
     
     def execute(self, context):    
         logging.info("Executing MySQLToS3Operator")
-        results = self.query_mysql()
-        self.copy_results_s3(results)
+        self.copy_results_s3()
 
 
 class S3DeletePrefixOperator(BaseOperator):
@@ -237,4 +298,18 @@ class EmrOperator(BaseOperator):
 # Defining the plugin class
 class CustomAwsPlugin(AirflowPlugin):
     name = "custom_aws_plugin"
-    operators = [CloudwatchToS3Operator,S3DeletePrefixOperator,EmrOperator,MySQLToS3Operator,UploadFileToS3Operator]
+    operators = [CloudwatchToS3Operator,S3DeletePrefixOperator,EmrOperator,
+                 MySQLToS3Operator,UploadFileToS3Operator,S3ToMySQLOperator]
+    # A list of class(es) derived from BaseHook
+    hooks = []
+    # A list of class(es) derived from BaseExecutor
+    executors = []
+    # A list of references to inject into the macros namespace
+    macros = []
+    # A list of objects created from a class derived
+    # from flask_admin.BaseView
+    admin_views = []
+    # A list of Blueprint object created from flask.Blueprint
+    flask_blueprints = []
+    # A list of menu links (flask_admin.base.MenuLink)
+    menu_links = []
